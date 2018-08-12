@@ -38,7 +38,7 @@ class UTxOut {
 
 const getTxId = tx => {
     const txInContent = tx.txIns
-    .map(txIn => txIn.uTxOutId + txIn.txOutIndex)
+    .map(txIn => txIn.txOutId + txIn.txOutIndex)
     .reduce((a, b) => a + b, "");
     
     const txOutContent = tx.txOuts
@@ -48,6 +48,20 @@ const getTxId = tx => {
     return CryptoJS.SHA256(txInContent + txOutContent).toString();
 };
 
+// const genesisTx = {
+//     txIns: [{ signature: "", txOutId: "", txOutIndex: 0 }],
+//     txOuts: [
+//       {
+//         address:
+//           "043fdd20b80b8836486c4f76f8a918d256c3dea5d8e7e1029241e12ce30b7aeb09a25e172785179ca67f42e1c220bdb4019f3fff14f80802d36eb7582664377753",
+//         amount: 50
+//       }
+//     ],
+//     id: "ad67c73cd8e98af6db4ac14cc790664a890286d4b06c6da7ef223aef8c281e76"
+//   };
+
+//   console.log("id: ", getTxId(genesisTx));
+
 const findUTxOut = (txOutId, txOutIndex, uTxOutList) => {
     return uTxOutList.find(uTxOut => uTxOut.txOutId === txOutId && uTxOut.txOutIndex === txOutIndex);
 };
@@ -56,11 +70,14 @@ const signTxIn = (tx, txInIndex, privateKey, uTxOutList) => {
     const txIn = tx.txIns[txInIndex];
     const dataToSign = tx.id;
 
+    
     const referencedUTxOut = findUTxOut(txIn.txOutId, txIn.txOutIndex, uTxOutList);
     if(referencedUTxOut === null || referencedUTxOut === undefined) {
         throw Error("Couldnt find the referenced uTxOut, not signing");
         return;
     }
+
+    // 트랜잭션에서 돈을 보낼 때 없는 주소이거나 해서 에러가 나지 않도록 하기 위해서
     const referencedAddress = referencedUTxOut.address;
     if(getPublicKey(privateKey) !== referencedAddress) {
         return false;
@@ -164,10 +181,13 @@ const isTxStructureValid = (tx) => {
 };
 
 const validateTxIn = (txIn, tx, uTxOutList) => {
+    // 레퍼런스하고 있는 uTxOut을 가져와야 함(class TxIn에서 txOutId나 txOutIndex는 하나씩임)
     const wantedTxOut = uTxOutList.find(uTxOut => uTxOut.txOutId === txIn.txOutId && uTxOut.txOutIndex === txIn.txOutIndex);
     if(wantedTxOut === undefined) {
-        console.log(`Didn't find the wanted uTxOut, the tx: ${tx} is invalid`);
+        console.log("Didn't find the wanted uTxOut", JSON.stringify(tx));
         return false;
+    // address: 퍼블릿 키, key: 시크릿 키(트랜잭션 아이디는 돈을 사용할 사람에 의해서 사인되었음을 체크) - 내가 주인임을 알 수 있음
+    // 왜냐하면 주소가 트랜잭션 id로 사인을 증명할 수 있기 때문이다.
     } else {
         const address = wantedTxOut.address;
         const key = ec.keyFromPublic(address, "hex");
@@ -182,12 +202,12 @@ const validateTx = (tx, uTxOutList) => {
         console.log("Tx structure is invalid");
         return false;
     }
-
+    // tx ID 검증
     if(getTxId(tx) !== tx.id) {
         console.log("Tx ID is not valid");
         return false;
     } 
-
+    // txIns가 uTxOuts을 제대로 반영하는지 검증
     const hasValidTxIns = tx.txIns.map(txIn => validateTxIn(txIn, tx, uTxOutList));
 
     if(!hasValidTxIns) {
@@ -198,7 +218,8 @@ const validateTx = (tx, uTxOutList) => {
     const amountInTxIns = tx.txIns.map(txIn => getAmountInTxIn(txIn, uTxOutList)).reduce((a, b) => a + b, 0);
 
     const amountInTxOuts = tx.txOuts.map(txOut => txOut.amount).reduce((a, b) => a + b, 0);
-
+    
+    // txIns = txOuts 인지 검증
     if(amountInTxIns !== amountInTxOuts) {
         console.log(
             `The tx: ${tx} doesn't have the same amount in the txOut as in the txIns`
@@ -213,17 +234,21 @@ const validateCoinbaseTx = (tx, blockIndex) => {
     if(getTxId(tx) !== tx.id) {
         console.log("Invalid Coinbase tx ID");
         return false;
+        // 블록체인에서 주는 1개의 인풋 밖에 없음
     } else if(tx.txIns.length !== 1) {
         console.log("Coinbase TX should only have one input");
         return false;
+        //TxIn은 txOutIndex 참조했지만, uTxOuts가 없으므로 그냥 블록 인덱스 참조
     } else if(tx.txIns[0].txOutIndex !== blockIndex) {
         console.log(
             "The txOutIndex of the Coinbase Tx should be the same as the Block Index"
           );
         return false;
+        // 받는 사람은 채굴자 한 명 뿐임
     } else if(tx.txOuts.length !== 1) {
         console.log("Coinbase TX should only have one output");
         return false;
+        // 채굴 한 번에 50코인씩만 주어짐
     } else if(tx.txOuts[0].amount !== COINBASE_AMOUNT) {
         console.log(
             `Coinbase TX should have an amount of only ${COINBASE_AMOUNT} and it has ${
@@ -253,25 +278,31 @@ const hasDuplicated = (txIns) => {
 
     return _(groups).map(value => {
         if(value > 1) {
-            console.log("Found a duplicated txIn", groups, ", ", value);
+            console.log("Found a duplicated txIn");
             return true;
         } else {
             return false;
         }
     })
+    // groups array의 true를 가졌는지 체크함
     .includes(true);
 };
 
+// 모든 트랜잭션을 검증
 const validateBlockTxs = (txs, uTxOutList, blockIndex) => {
+    // tx = txIns + txOuts + ID
+    // console.log("txs", JSON.stringify(txs));
+    
+    // 코인베이스 트랜잭션 검증
     const coinbaseTx = txs[0];
     if(!validateCoinbaseTx(coinbaseTx, blockIndex)) {
         console.log("Coinbase Tx is invalid");
     }
 
+    // 일반 트랜잭션 검증
     const txIns = _(txs).map(tx => tx.txIns).flatten().value();
 
-    console.log("txIns in validateBlockTxs: ", txIns);
-
+    // 더블 스펜딩 막기 위해서
     if(hasDuplicated(txIns)){
         console.log("Found duplicated txIns");
         return false;
@@ -281,10 +312,14 @@ const validateBlockTxs = (txs, uTxOutList, blockIndex) => {
     return nonCoinbaseTxs.map(tx => validateTx(tx, uTxOutList)).reduce((a, b) => a && b, true);
 }; 
 
+// 인풋을 아웃풋으로 변환
 const processTxs = (txs, uTxOutList, blockIndex) => {
+    // all txs를 검증
     if(!validateBlockTxs(txs, uTxOutList, blockIndex)) {
         return null;
     }
+
+    // uTxOut(unspent)를 업데이트
     return updateUTxOuts(txs, uTxOutList);
 }
 

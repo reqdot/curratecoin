@@ -1,13 +1,18 @@
 const WebSockets = require("ws"),
+    Mempool = require("./memPool"),
     Blockchain = require('./blockchain');
 
-const { createNewBlock, getNewestBlock, isBlockStructureValid, replaceChain, getBlockchain, addBlockToChain } = Blockchain;
+const { createNewBlock, getNewestBlock, isBlockStructureValid, replaceChain, getBlockchain, addBlockToChain, handleIncomingTx } = Blockchain;
+
+const { getMempool } = Mempool;
 
 const sockets = [];
 
 const GET_LATEST = "GET_LATEST";
 const GET_ALL = "GET_ALL";
 const BLOCKCHAIN_RESPONSE = "BLOCKCHAIN_RESPONSE";
+const REQUEST_MEMPOOL = "REQUEST_MEMPOOL";
+const MEMPOOL_RESPONSE = "MEMPOOL_RESPONSE";
 
 const getLatest = () => {
     return {
@@ -30,6 +35,20 @@ const blockchainResponse = data => {
     };
 };
 
+const getAllMempool = () => {
+    return {
+        type: REQUEST_MEMPOOL,
+        data: null
+    };
+};
+
+const mempoolResponse = (data) => {
+    return {
+        type: MEMPOOL_RESPONSE,
+        data
+    }
+}
+
 const getSockets = () => sockets;
 
 const startP2PServer = server => {
@@ -48,13 +67,21 @@ const initSocketConnection = ws => {
     handleSocketMessages(ws);
     handleSocketError(ws);
     sendMessage(ws, getLatest());
+    setTimeout(() => {
+        sendMessage(ws, getAllMempool());
+    }, 1000);
+    setInterval(() => {
+        if(sockets.includes(ws)) {
+            sendMessage(ws, "");
+        }
+    }, 1000);
 };
 
 const parseData = data => {
     try {
         return JSON.parse(data);
     } catch (e) {
-        console.log("parseData error: " + e.message);
+        console.log("parseData error: " + data, "!");
         return null;
     }
 };
@@ -62,7 +89,6 @@ const parseData = data => {
 const handleSocketMessages = ws => {
     ws.on("message", data => {
         const message = parseData(data);
-        console.log("message of handlesocketmessages", message);
         if(message ===  null) {
             return;
         }
@@ -79,6 +105,23 @@ const handleSocketMessages = ws => {
                     break;
                   } 
                 handleBlockchainResponse(receivedBlocks);  
+                break;
+            case REQUEST_MEMPOOL:
+                sendMessage(ws, returnMempool());
+                break;
+            case MEMPOOL_RESPONSE:
+                const receivedTxs = message.data;
+                if(receivedTxs === null) {
+                    return;
+                }
+                receivedTxs.forEach(tx => {
+                    try {
+                        handleIncomingTx(tx);
+                        broadcastMempool();
+                    } catch(e) {
+                        console.log(e);
+                    }
+                })
                 break;
         };
     });
@@ -109,6 +152,10 @@ const handleBlockchainResponse = receivedBlocks => {
 
 };
 
+const returnMempool = () => 
+    mempoolResponse(getMempool());
+
+
 const sendMessage = (ws, message) => 
     ws.send(JSON.stringify(message));
 
@@ -124,6 +171,8 @@ const responseAll = () =>
 
 const broadcastNewBlock = () => sendMessageToAll(responseLatest());
 
+const broadcastMempool = () => sendMessageToAll(returnMempool());
+
 const handleSocketError = ws => {
     const closeSocketConnection = ws => {
         ws.close();
@@ -137,18 +186,21 @@ const handleSocketError = ws => {
     );
 };
 
+// newPeer = 웹소켓이 실행되고 있는 url
 const connectToPeers = newPeer => {
     const ws = new WebSockets(newPeer);
     ws.on("open", () => {
-        console.log("ws", ws);
         initSocketConnection(ws);
     });
     ws.on("error", (error) => 
         console.log("connectToPeers", error.message));
+    ws.on("close", (error) => 
+        console.log("connection close", error.message));
 };
 
 module.exports = {
     startP2PServer,
     connectToPeers,
-    broadcastNewBlock
+    broadcastNewBlock,
+    broadcastMempool
 };
