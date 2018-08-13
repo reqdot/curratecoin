@@ -2,8 +2,7 @@ const WebSockets = require("ws"),
     Mempool = require("./memPool"),
     Blockchain = require('./blockchain');
 
-const { createNewBlock, getNewestBlock, isBlockStructureValid, replaceChain, getBlockchain, addBlockToChain, handleIncomingTx } = Blockchain;
-
+const { getNewestBlock, createNewBlock, isBlockStructureValid, replaceChain, getBlockchain, addBlockToChain, handleIncomingTx } = Blockchain;
 const { getMempool } = Mempool;
 
 const sockets = [];
@@ -68,7 +67,7 @@ const initSocketConnection = ws => {
     handleSocketError(ws);
     sendMessage(ws, getLatest());
     setTimeout(() => {
-        sendMessage(ws, getAllMempool());
+        sendMessageToAll(getAllMempool());
     }, 1000);
     setInterval(() => {
         if(sockets.includes(ws)) {
@@ -81,7 +80,7 @@ const parseData = data => {
     try {
         return JSON.parse(data);
     } catch (e) {
-        console.log("parseData error: " + data, "!");
+        console.log(e);
         return null;
     }
 };
@@ -121,9 +120,9 @@ const handleSocketMessages = ws => {
                     } catch(e) {
                         console.log(e);
                     }
-                })
+                });
                 break;
-        };
+        }
     });
 };
 
@@ -186,16 +185,15 @@ const handleSocketError = ws => {
     );
 };
 
-// newPeer = 웹소켓이 실행되고 있는 url
 const connectToPeers = newPeer => {
     const ws = new WebSockets(newPeer);
     ws.on("open", () => {
         initSocketConnection(ws);
     });
-    ws.on("error", (error) => 
-        console.log("connectToPeers", error.message));
+    ws.on("error", () => 
+        console.log("Connection failed"));
     ws.on("close", (error) => 
-        console.log("connection close", error.message));
+        console.log("Connection failed"));
 };
 
 module.exports = {

@@ -41,7 +41,7 @@ const genesisTx = {
 const genesisBlock = new Block(
     0,
     "94f19aecd33c282d99d6a1c0c09421fb2dd0a71aa2509cfd4f191cc897656cf0",
-    null,
+    "",
     1533629395,
     [genesisTx],
     0,
@@ -63,13 +63,12 @@ CryptoJS.SHA256(
     index + previousHash + timestamp + JSON.stringify(data) + difficulty + nonce
 ).toString();
 
-// 코인베이스 트랜잭션 추가하기 위해서 새 함수 생성 => createNewRawBlock에 리턴
+
 const createNewBlock = () => {
     const coinbaseTx = createCoinbaseTx(
         getPublicFromWallet(),
         getNewestBlock().index+1
     );
-    // 트랜잭션 컨펌(멤풀 안에 모든 트랜잭션 가져와서 unspent가 수정되도록) : 밸런스가 정확히 보인다
     const blockData = [coinbaseTx].concat(getMempool());
     return createNewRawBlock(blockData);
 };
@@ -134,15 +133,13 @@ const findBlock = (index, previousHash, timestamp, data, difficulty) => {
     }
 };
 
-const hashMatchesDifficulty = (hash, difficulty) => {
+const hashMatchesDifficulty = (hash, difficulty=0) => {
     const hashInBinary = hexToBinrary(hash);
     const requiredZeros = "0".repeat(difficulty);
     return hashInBinary.startsWith(requiredZeros);
 };
 
 const getBlocksHash = (block) => createHash(block.index, block.previousHash, block.timestamp, block.data, block.difficulty, block.nonce);
-
-// console.log(getBlocksHash(genesisBlock));
 
 const isTimeStampValid = (newBlock, oldBlock) => {
     return (oldBlock.timestamp - 60 < newBlock.timestamp && newBlock.timestamp - 60 < getTimestamp());
@@ -169,31 +166,13 @@ const isBlockValid = (candidateBlock, latestBlock) => {
 };
 
 const isBlockStructureValid = (block) => {
-    // return (
-    //     typeof block.index === "number" 
-    //     && typeof block.hash ==="string" 
-    //     && typeof block.previousHash === "string" 
-    //     && typeof block.timestamp === "number" 
-    //     && typeof block.data === "object"
-    // );
-    if(typeof block.index !== "number") {
-        console.log("index error@");
-        return false;
-    } else if(typeof block.hash !== "string") {
-        console.log("hash error@");
-        return false;
-    } else if(typeof block.previousHash !== "string") {
-        console.log("previousHash error@");
-        return false;
-    } else if(typeof block.timestamp !== "number") {
-        console.log("timestamp error@");
-        return false;
-    } else if(typeof block.data !== "object") {
-        console.log("data error@");
-        return false;
-    } else {
-        return true;
-    }
+    return (
+        typeof block.index === "number" 
+        && typeof block.hash ==="string" 
+        && typeof block.previousHash === "string" 
+        && typeof block.timestamp === "number" 
+        && typeof block.data === "object"
+    );
 };
 
 const isChainValid = (candidateChain) => {
@@ -208,9 +187,9 @@ const isChainValid = (candidateChain) => {
 
 let foreignUTxOuts = [];
 
-    for(let i= 0; i < candidateChain.length; i++) {
+    for(let i = 0; i < candidateChain.length; i++) {
         const currentBlock = candidateChain[i];
-        if(i !==0 && !isBlockValid(currentBlock, candidateChain[i - 1])) {
+        if(i !== 0 && !isBlockValid(currentBlock, candidateChain[i - 1])) {
             return null;
         }
 
@@ -219,21 +198,16 @@ let foreignUTxOuts = [];
         if(foreignUTxOuts === null) {
             return null;
         }
-
-    };
+    }
     return foreignUTxOuts;
 };
 
-const sumDifficulty = anyBlockchain => {
-    anyBlockchain.map(block => block.difficulty)
-    .map(difficulty => Math.pow(2, difficulty))
-    .reduce((a, b) => a + b);
-};
+const sumDifficulty = anyBlockchain => anyBlockchain.map(block => block.difficulty).map(difficulty => Math.pow(2, difficulty)).reduce((a, b) => a + b);
 
 const replaceChain = candidateChain => {
     const foreignUTxOuts = isChainValid(candidateChain);
     const validChain = foreignUTxOuts !== null;
-    if(validChain && sumDifficulty(candidateChain)  > sumDifficulty(getBlockchain())) {
+    if(validChain && sumDifficulty(candidateChain) > sumDifficulty(getBlockchain())) {
         blockchain = candidateChain;
         uTxOuts = foreignUTxOuts;
         updateMempool(uTxOuts);
@@ -247,7 +221,6 @@ const replaceChain = candidateChain => {
 const addBlockToChain = candidateBlock => {
     if(isBlockValid(candidateBlock, getNewestBlock())) {
 
-        // 체인에 블록을 추가하기 전에, 트랜잭션을 프로세스 하기
         const processedTxs = processTxs(candidateBlock.data, uTxOuts, candidateBlock.index);
         if(processedTxs === null) {
             console.log("Couldnt process txs");
@@ -264,12 +237,10 @@ const addBlockToChain = candidateBlock => {
     }
 };
 
-// getUTxOutList을 수정하더라도 uTxOuts에 영향이 없도록
 const getUTxOutList = () => _.cloneDeep(uTxOuts);
 
 const getAccountBalance = () => getBalance(getPublicFromWallet(), uTxOuts);
 
-// 블록체인에서 우리 트랜잭션을 가져다가 트랜잭션을 생성하고, 트랜잭션을 멤풀에 추가
 const sendTx = (address, amount) => {
     const tx = createTx(address, amount, getPrivateFromWallet(), getUTxOutList(), getMempool());
     addToMempool(tx, getUTxOutList());

@@ -1,5 +1,6 @@
 const express = require("express"),
     _ = require("lodash"),
+    cors = require("cors"),
     bodyParser = require("body-parser"),
     morgan = require("morgan"),
     Blockchain = require("./blockchain"),
@@ -17,6 +18,7 @@ const express = require("express"),
     const app = express();
     
     app.use(bodyParser.json());
+    app.use(cors());
     app.use(morgan("combined"));
 
     app
@@ -32,8 +34,6 @@ const express = require("express"),
     app.post("/peers", (req, res) => {
         const { body: { peer } } = req;
         connectToPeers(peer);
-       
-        // kill the connection
         res.send();
     });
 
@@ -54,14 +54,24 @@ const express = require("express"),
         } else {
             res.send(block);
         }
-    })
+    });
+
+    app.get("/transactions/:id", (req, res) => {
+        const tx = _(getBlockchain())
+          .map(blocks => blocks.data)
+          .flatten()
+          .find({ id: req.params.id });
+        if (tx === undefined) {
+          res.status(400).send("Transaction not found");
+        }
+        res.send(tx);
+      });
 
     app.route("/transactions")
         .get((req, res) => {
             res.send(getMempool());
         })
         .post((req, res) => {
-            // sendTx에 throw Error를 하고 있으니 try-catch 사용
             try {
                 const { body: { address, amount } } = req;
                 if(address === undefined || amount === undefined) { 
@@ -84,6 +94,5 @@ const express = require("express"),
 
     const server = app.listen(PORT, () => console.log(`curratecoin HTTP server running on ${PORT}`));
 
-    // 서버 시작 전에 initwallet();
     initWallet();
     startP2PServer(server);
